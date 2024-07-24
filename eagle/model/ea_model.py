@@ -52,6 +52,7 @@ class EaModel(nn.Module):
 
         low_memory=False
 
+        """
         device = base_model.model.layers[-1].self_attn.q_proj.weight.device
         if device!=base_model.lm_head.weight.device:
             self.ea_layer.diff_device = True
@@ -65,8 +66,9 @@ class EaModel(nn.Module):
 
         else:
             self.ea_layer.diff_device = False
+        """
         self.ea_layer.load_state_dict(ea_layer_state_dict, strict=True)
-        self.ea_layer.to(self.base_model.dtype).to(device)
+        self.ea_layer.to(self.base_model.dtype).to(self.base_model.device)
         self.ea_layer.init_tree()
 
     def get_tokenizer(self):
@@ -122,7 +124,8 @@ class EaModel(nn.Module):
 
 
         if total_token==-1:
-            device = model.base_model.model.layers[0].self_attn.q_proj.weight.device
+            #device = model.base_model.model.layers[0].self_attn.q_proj.weight.device
+            device = model.base_model.device
             cans=[40,48,50,56,60]
             x=[1,1.05,1.07,1.1,1.13]
             times=[]

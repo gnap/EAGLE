@@ -90,11 +90,11 @@ def initialize_past_key_values(model):
 
     devices=[]
     for i in range(config.num_hidden_layers):
-        try:
-            device = model.model.layers[i].self_attn.q_proj.weight.device
-        except:
-            device=model.layers[i].self_attn.q_proj.weight.device
-        devices.append(device)
+        #try:
+        #    device = model.model.layers[i].self_attn.q_proj.weight.device
+        #except:
+        #    device=model.layers[i].self_attn.q_proj.weight.device
+        devices.append(model.device)
     past_key_values_data_list=[]
     startnum=0
     startdevice=devices[0]
