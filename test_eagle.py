@@ -4,7 +4,7 @@ from eagle.model.ea_model import EaModel
 from fastchat.model import get_conversation_template
 import time
 
-total_tokens = 80
+total_tokens = 10
 print(f"total_tokens={total_tokens}")
 model = EaModel.from_pretrained(
     base_model_path="/home/gnap/Models/Llama-2-7B-Chat-GPTQ",
@@ -39,11 +39,13 @@ for i in range(20):
 torch.cuda.synchronize()
 for x in range(5):
     start = time.time()
+    target_calls = 0
     for i in range(10):
-        output_ids = model.eagenerate(input_ids, temperature=0, max_new_tokens=24)
+        output_ids, _, idx = model.eagenerate(input_ids, temperature=0, max_new_tokens=24, log=True)
+        target_calls += idx
     torch.cuda.synchronize()
     elapsed = time.time() - start
-    print(f"TBT={1000*elapsed/(10 * output_ids.shape[-1]-input_ids.shape[-1])}ms")
+    print(f"TBT={1000*elapsed/(10 * output_ids.shape[-1]-input_ids.shape[-1])}ms target_calls={target_calls/10}")
 #print(output_ids)
 output = model.tokenizer.decode(output_ids[0])
 print(output)
