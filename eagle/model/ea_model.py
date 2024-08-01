@@ -3,6 +3,7 @@ import json
 import time
 
 import torch
+torch.set_printoptions(linewidth=200)
 import torch.nn as nn
 from transformers import PreTrainedModel, PretrainedConfig,AutoConfig
 from .modeling_llama_kv import LlamaForCausalLM as KVLlamaForCausalLM
@@ -16,8 +17,6 @@ from huggingface_hub import hf_hub_download
 from .cnets import Model
 from .configs import EConfig
 from huggingface_hub import hf_hub_download
-
-
 
 
 class EaModel(nn.Module):
@@ -91,7 +90,7 @@ class EaModel(nn.Module):
             threshold=1.0,
             **kwargs,
     ):
-        #assert Type=="LLaMA" or "Mixtral"
+        # assert Type=="LLaMA" or "Mixtral"
         Type=AutoConfig.from_pretrained(base_model_path).architectures[0]
         if Type=='LlamaForCausalLM':
             base_model = KVLlamaForCausalLM.from_pretrained(
@@ -121,10 +120,8 @@ class EaModel(nn.Module):
             ea_layer_state_dict
         )
 
-
-
         if total_token==-1:
-            #device = model.base_model.model.layers[0].self_attn.q_proj.weight.device
+            # device = model.base_model.model.layers[0].self_attn.q_proj.weight.device
             device = model.base_model.device
             cans=[40,48,50,56,60]
             x=[1,1.05,1.07,1.1,1.13]
@@ -145,9 +142,6 @@ class EaModel(nn.Module):
                 times.append((end_time - start_time) / x[i])
             total_token=cans[times.index(min(times))]
             model.ea_layer.total_tokens=total_token-1
-
-
-
 
         return model
 
@@ -210,18 +204,19 @@ class EaModel(nn.Module):
             stop_token_id = self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
         max_length=max_length-self.ea_layer.total_tokens-10
 
+        #print("total token", self.ea_layer.total_tokens)
+
         if temperature > 1e-5:
             logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
         else:
             logits_processor = None
-        #assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
+        #print("processor", logits_processor)
+        # assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
         # Avoid modifying the input_ids in-place
 
         padding=(torch.zeros(1,1,dtype=torch.long)-1).to(input_ids.device)
         input_ids = input_ids.clone()
         self.ea_layer.reset_kv()
-
-
 
         # Initialize the past key and value states
         if hasattr(self, "past_key_values"):
@@ -246,13 +241,18 @@ class EaModel(nn.Module):
             input_ids, self, past_key_values, logits_processor
         )
         new_token = 0
+        #print("init")
+        #print("draft_tokens", draft_tokens, draft_tokens.shape)
+        #print("tree_mask", tree_mask.tolist(), tree_mask.shape)
+        #print("retrive_indices", retrieve_indices, retrieve_indices.shape)
+        #print("tree_pos_ids", tree_position_ids, tree_position_ids.shape)
 
         for idx in range(max_length):
-            #with Timer("all"):
+            # with Timer("all"):
             self.base_model.model.tree_mask = tree_mask
 
             draft_tokens=draft_tokens.to(input_ids.device)
-            #with Timer("tree_decoding"):
+            # with Timer("tree_decoding"):
             logits, hidden_state_new, outputs = tree_decoding(
                 self,
                 draft_tokens,
@@ -261,15 +261,17 @@ class EaModel(nn.Module):
                 input_ids,
                 retrieve_indices,
             )
-            #retrieve_indices=tree_buffers["retrieve_indices"]
-            #logits = logits[0, retrieve_indices]
+            # retrieve_indices=tree_buffers["retrieve_indices"]
+            # logits = logits[0, retrieve_indices]
             draft_tokens=torch.cat((draft_tokens,padding),dim=1)
+            #print("draft tokens", draft_tokens)
             candidates=draft_tokens[0,retrieve_indices]
             best_candidate, accept_length, sample_p = evaluate_posterior(
-                logits, candidates, logits_processor
+                logits, candidates, logits_processor, self.tokenizer
             )
+
             # print(accept_length)
-            #with Timer("update_inference_inputs"):
+            # with Timer("update_inference_inputs"):
             input_ids, draft_tokens, retrieve_indices,tree_mask,tree_position_ids, new_token, hidden_state, sample_token = update_inference_inputs(
                 input_ids,
                 candidates,
@@ -300,7 +302,6 @@ class EaModel(nn.Module):
         else:
             return input_ids, new_token, idx
 
-
     @torch.no_grad()
     def naivegenerate(
             self,
@@ -328,8 +329,6 @@ class EaModel(nn.Module):
         padding = (torch.zeros(1, 1, dtype=torch.long) - 1).to(input_ids.device)
         input_ids = input_ids.clone()
         self.ea_layer.reset_kv()
-
-
 
         # Initialize the past key and value states
         if hasattr(self, "past_key_values"):
@@ -401,14 +400,12 @@ class EaModel(nn.Module):
             logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
         else:
             logits_processor = None
-        #assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
+        # assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
         # Avoid modifying the input_ids in-place
 
         padding=(torch.zeros(1,1,dtype=torch.long)-1).to(input_ids.device)
         input_ids = input_ids.clone()
         self.ea_layer.reset_kv()
-
-
 
         # Initialize the past key and value states
         if hasattr(self, "past_key_values"):
@@ -435,11 +432,11 @@ class EaModel(nn.Module):
         new_token = 0
 
         for idx in range(max_length):
-            #with Timer("all"):
+            # with Timer("all"):
             self.base_model.model.tree_mask = tree_mask
 
             draft_tokens=draft_tokens.to(input_ids.device)
-            #with Timer("tree_decoding"):
+            # with Timer("tree_decoding"):
             logits, hidden_state_new, outputs = tree_decoding(
                 self,
                 draft_tokens,
@@ -448,15 +445,15 @@ class EaModel(nn.Module):
                 input_ids,
                 retrieve_indices,
             )
-            #retrieve_indices=tree_buffers["retrieve_indices"]
-            #logits = logits[0, retrieve_indices]
+            # retrieve_indices=tree_buffers["retrieve_indices"]
+            # logits = logits[0, retrieve_indices]
             draft_tokens=torch.cat((draft_tokens,padding),dim=1)
             candidates=draft_tokens[0,retrieve_indices]
             best_candidate, accept_length, sample_p = evaluate_posterior(
                 logits, candidates, logits_processor
             )
             # print(accept_length)
-            #with Timer("update_inference_inputs"):
+            # with Timer("update_inference_inputs"):
             input_ids, draft_tokens, retrieve_indices,tree_mask,tree_position_ids, new_token, hidden_state, sample_token = update_inference_inputs(
                 input_ids,
                 candidates,
@@ -484,7 +481,6 @@ class EaModel(nn.Module):
                 break
             if input_ids.shape[1] > max_length:
                 break
-
 
     @torch.no_grad()
     def naive_generate(
@@ -560,6 +556,3 @@ class EaModel(nn.Module):
                 break
             if input_ids.shape[1] > max_length:
                 break
-
-
-

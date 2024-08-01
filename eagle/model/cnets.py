@@ -564,6 +564,13 @@ class Model(nn.Module):
             combined_attention_mask = (
                 expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask + combined_attention_mask
             )
+        """
+        print(
+            "causual",
+            (combined_attention_mask >= 0).to(torch.int8),
+            combined_attention_mask.shape,
+        )
+        """
 
         # [MODIFIED] add tree mask
         if hasattr(self, "tree_mask") and self.tree_mask is not None:
@@ -572,6 +579,14 @@ class Model(nn.Module):
             combined_attention_mask[:, :, -tree_shape0:, -tree_shape1:][
                 tree_mask == 0
                 ] = torch.finfo(torch.float32).min
+
+        """
+        print(
+            "combined",
+            (combined_attention_mask >= 0).to(torch.int8),
+            combined_attention_mask.shape,
+        )
+        """
 
         return combined_attention_mask
 
@@ -601,6 +616,7 @@ class Model(nn.Module):
         #     noise = torch.randn(inputs_embeds.size(),device=inputs_embeds.device) * std
         #     inputs_embeds=inputs_embeds+noise
 
+        #print("ea kv:", past_key_values[0][0].shape if past_key_values else None)
         if past_key_values is not None:
             past_key_values_length = past_key_values[0][0].shape[2]
             seq_length_with_past = seq_length_with_past + past_key_values_length
@@ -613,6 +629,7 @@ class Model(nn.Module):
         else:
             position_ids = position_ids.view(-1, seq_length).long()
 
+        #print("ea pos:", position_ids if position_ids is not None else None)
         if attention_mask is None:
             attention_mask = torch.ones(
                 (batch_size, seq_length_with_past), dtype=torch.bool, device=hidden_states.device
@@ -696,6 +713,22 @@ class Model(nn.Module):
         len_posi = input_ids.shape[1]
         self.reset()
 
+        """
+        print(
+            "top k:",
+        )
+        print(
+            (
+                (
+                    self.stable_kv[0][0].shape,
+                    input_ids.shape,
+                    input_ids[:, self.stable_kv[0][0].shape[2] :].shape,
+                )
+                if self.stable_kv
+                else None
+            ),
+        )
+        """
         # with Timer("draft many"):
         if hasattr(self, "stable_kv") and self.stable_kv is not None:
             kv_len = self.stable_kv[0][0].shape[2]
@@ -706,9 +739,12 @@ class Model(nn.Module):
         self.stable_kv = past_key_values
         last_hidden = out_hidden[:, -1]
 
+        #print("last_hidden", last_hidden, last_hidden.shape)
+
         last_headout = head(last_hidden)
 
         last_p = self.logsoftmax(last_headout)
+        #print("last_p", last_p)
         top = torch.topk(last_p, top_k, dim=-1)
         topk_index, topk_p = top.indices, top.values
         scores = topk_p[0]
@@ -723,7 +759,11 @@ class Model(nn.Module):
         # 4
         for i in range(depth):
             self.tree_mask = tree_mask
+            #print("step:", i)
+            #print("input_ids", input_ids)
+            #print("tree mask", tree_mask, tree_mask.shape)
             position_ids = len_posi + self.position_ids
+            #print("topk pos", position_ids, position_ids.shape)
             # with Timer("draft one"):
             out_hidden, past_key_values = self(input_hidden, input_ids=input_ids, past_key_values=past_key_values,
                                                position_ids=position_ids, use_cache=True)
@@ -736,8 +776,10 @@ class Model(nn.Module):
             parents = (topk_cs_index + bias)
             parents_list.append(parents)
 
+            #print("out_hidden", out_hidden[0])
             last_headout = head(out_hidden[0])
             last_p = self.logsoftmax(last_headout)
+            #print("last_p", last_p)
 
             top = torch.topk(last_p, top_k, dim=-1)
             topk_index, topk_p = top.indices, top.values
@@ -749,6 +791,7 @@ class Model(nn.Module):
             scores = topk_cs_p
 
             out_ids = topk_cs_index // top_k
+            #print("out ids:", out_ids, out_ids.shape)
             input_hidden = out_hidden[:, out_ids]
             # with Timer("2index"):
             #     in_ids = topk_cs_index % top_k
@@ -759,6 +802,7 @@ class Model(nn.Module):
 
             ss_token.append(topk_index)
             scores_list.append(cu_scores)
+            #print("out mask:", tree_mask[:, :, out_ids].shape)
             tree_mask = torch.cat((tree_mask[:, :, out_ids], self.tree_mask_init), dim=3)
 
             # if self.threshold < 0 and cu_scores.max() < self.threshold:
@@ -771,6 +815,7 @@ class Model(nn.Module):
 
         scores_list = torch.cat(scores_list, dim=0).view(-1)
         ss_token_list = torch.cat(ss_token, dim=0).view(-1)
+        #print('score list', scores_list.shape)
         top_scores = torch.topk(scores_list, total_tokens, dim=-1)
         top_scores_index = top_scores.indices
         top_scores_index = torch.sort(top_scores_index).values
@@ -848,6 +893,8 @@ class Model(nn.Module):
         retrieve_indices = torch.tensor(retrieve_indices, dtype=torch.long)
         del mask_index, mask_index_list, noleaf_index, noleaf_num, leaf_num, max_depth, rid
         tree_position_ids = tree_position_ids.to(hidden_states.device)
+
+        #print("out tree mask:", tree_mask, tree_mask.shape)
 
         return draft_tokens, retrieve_indices, tree_mask, tree_position_ids
 

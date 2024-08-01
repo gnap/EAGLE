@@ -7,6 +7,7 @@ import math
 from typing import List, Optional, Tuple, Union
 
 import torch
+torch.set_printoptions(linewidth=160)
 import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch import nn
@@ -911,13 +912,14 @@ class LlamaModel(LlamaPreTrainedModel):
                 else expanded_attn_mask + combined_attention_mask
             )
 
-
         if hasattr(self, "tree_mask") and self.tree_mask is not None:
             tree_mask = self.tree_mask
             tree_len = tree_mask.size(-1)
             combined_attention_mask[:, :, -tree_len:, -tree_len:][
                 tree_mask == 0
                 ] = combined_attention_mask.min()
+
+        #print("target combined", (combined_attention_mask >= 0).to(torch.int8).tolist(), combined_attention_mask.shape)
 
         return combined_attention_mask
 

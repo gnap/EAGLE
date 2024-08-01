@@ -1,7 +1,7 @@
 import copy
 import random
 
-# typing 
+# typing
 from typing import List, Tuple
 import time
 import torch
@@ -234,6 +234,8 @@ def initialize_tree(input_ids, model, past_key_values, logits_processor):
         input_ids, past_key_values=past_key_values, output_orig=True
     )
 
+    #print(hidden_states[0, -1], hidden_states.shape)
+
     if logits_processor is not None:
         logits = orig[:, -1]
         logits = logits_processor(None, logits)
@@ -242,6 +244,7 @@ def initialize_tree(input_ids, model, past_key_values, logits_processor):
     else:
         token = torch.argmax(orig[:, -1])
         token = token[None, None]
+        #print("sample p", orig[:,-1, token.item()].item())
     input_ids = torch.cat((input_ids, token.to(input_ids.device)), dim=1)
     # Clone the output hidden states
 
@@ -306,7 +309,9 @@ def tree_decoding(
         input_ids,
         retrieve_indices,
 ):
+    #print("tree input_ids", input_ids, input_ids.shape)
     position_ids = tree_position_ids + input_ids.shape[1]
+    #print("tree pos", position_ids, position_ids.shape)
 
     outputs, tree_logits, hidden_state = model(
         tree_candidates,
@@ -315,18 +320,16 @@ def tree_decoding(
         position_ids=position_ids,
     )
 
-
     logits = tree_logits[0, retrieve_indices]
+    #print("tree logits", tree_logits, tree_logits.shape)
     return logits, hidden_state, outputs
 
 
-
-
-
 def evaluate_posterior(
-        logits: torch.Tensor,
-        candidates: torch.Tensor,
-        logits_processor,
+    logits: torch.Tensor,
+    candidates: torch.Tensor,
+    logits_processor,
+    tokenizer,
 ):
     """
     Evaluate the posterior probabilities of the candidates based on the provided logits and choose the best candidate.
@@ -346,11 +349,31 @@ def evaluate_posterior(
     - accept_length (int): Length of the accepted candidate sequence.
     """
     # Greedy decoding based on temperature value
+    # assert logits_processor is None
+    """
+    print("candidates", candidates)
+    for x in range(candidates.shape[0]):
+        print(tokenizer.decode([y for y in candidates[x].tolist() if y != -1]))
+    """
     if logits_processor is None:
         # Find the tokens that match the maximum logits for each position in the sequence
         posterior_mask = (
                 candidates[:, 1:].to(logits.device) == torch.argmax(logits[:, :-1], dim=-1)
         ).int()
+        #print("posterior mask", posterior_mask)
+        #print("logits max", torch.argmax(logits[:, :-1], dim=-1))
+        for x in range(candidates.shape[0]):
+            """
+            print(
+                tokenizer.decode(
+                    [
+                        y
+                        for y in torch.argmax(logits[:, :-1], dim=-1)[x].tolist()
+                        if y != -1
+                    ]
+                )
+            )
+            """
         candidates_accept_length = (torch.cumprod(posterior_mask, dim=1)).sum(dim=1)
         accept_length = candidates_accept_length.max()
         # Choose the best candidate
